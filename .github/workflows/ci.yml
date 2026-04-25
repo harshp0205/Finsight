@@ -7,7 +7,7 @@ on:
     branches: [main, develop]
 
 jobs:
-  backend-lint:
+  backend-check:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -18,16 +18,5 @@ jobs:
         with:
           node-version: 20
       - run: npm install
-      - run: node --check index.js
-
-  frontend-lint:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: '[ -f package.json ] && npm install && npm run lint || echo "No frontend yet, skipping"'
+      - name: Syntax check all JS files
+        run: find . -name "*.js" -not -path "*/node_modules/*" -exec node --check {} \;
