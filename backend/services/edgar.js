@@ -7,8 +7,6 @@ const TTL = 7 * 24 * 3600; // 7 days
 
 async function getCIK(ticker) {
   return withCache(`cik:${ticker}`, TTL, async () => {
-    const res = await fetch(`${BASE}/submissions/CIK.json`, { headers: HEADERS });
-    // EDGAR ticker→CIK map
     const map = await fetch(
       'https://www.sec.gov/files/company_tickers.json',
       { headers: HEADERS }
