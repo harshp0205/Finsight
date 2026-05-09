@@ -1,37 +1,55 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { supabase } from '../services/supabase.js';
-import { generateWithContext } from '../services/llm.js';
-import { getQuote } from '../services/yahoo.js';
-import { getNews } from '../services/news.js';
+import { streamPipeline } from '../rag/pipeline.js';
 
 const router = Router();
 
-const SYSTEM_PROMPT = `You are FinSight, an institutional-grade AI financial analyst.
-Answer with data-backed insights. Always cite your sources inline. Be concise but thorough.
-Format responses in clear sections. Flag speculation clearly.`;
-
+// POST /api/chat — SSE streaming response
 router.post('/', requireAuth, async (req, res, next) => {
   try {
-    const { message, conversationId, tickers = [] } = req.body;
+    const { message, conversationId } = req.body;
     const userId = req.user.sub;
 
-    // Fetch live context for mentioned tickers
-    const contextParts = await Promise.all(
-      tickers.map(async (t) => {
-        const [quote, news] = await Promise.all([getQuote(t), getNews(t)]);
-        return `${t}: Price $${quote.regularMarketPrice}, Change ${quote.regularMarketChangePercent?.toFixed(2)}%\nTop news: ${news.slice(0, 3).map((n) => n.title).join('; ')}`;
-      })
-    );
+    // Set up SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
 
-    const answer = await generateWithContext(
-      SYSTEM_PROMPT,
-      message,
-      contextParts.join('\n\n') || 'No specific ticker context provided.'
-    );
+    const sendEvent = (event, data) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    // Load conversation history
+    let convId = conversationId;
+    let history = [];
+
+    if (convId) {
+      const { data } = await supabase
+        .from('messages')
+        .select('role, content')
+        .eq('conversation_id', convId)
+        .order('created_at')
+        .limit(10);
+      history = data || [];
+    }
+
+    // Stream pipeline
+    let fullAnswer = '';
+    let metaData = {};
+
+    for await (const event of streamPipeline(message, history)) {
+      if (event.type === 'chunk') {
+        fullAnswer += event.text;
+        sendEvent('chunk', { text: event.text });
+      } else if (event.type === 'done') {
+        metaData = { citations: event.citations, intent: event.intent, ticker: event.ticker };
+        sendEvent('done', metaData);
+      }
+    }
 
     // Persist conversation
-    let convId = conversationId;
     if (!convId) {
       const { data } = await supabase
         .from('conversations')
@@ -43,11 +61,14 @@ router.post('/', requireAuth, async (req, res, next) => {
 
     await supabase.from('messages').insert([
       { conversation_id: convId, role: 'user', content: message },
-      { conversation_id: convId, role: 'assistant', content: answer },
+      { conversation_id: convId, role: 'assistant', content: fullAnswer, citations: metaData.citations },
     ]);
 
-    res.json({ answer, conversationId: convId });
-  } catch (err) { next(err); }
+    sendEvent('conversationId', { id: convId });
+    res.end();
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.get('/history', requireAuth, async (req, res, next) => {
