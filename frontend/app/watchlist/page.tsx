@@ -18,11 +18,11 @@ export default function WatchlistPage() {
   const [newTicker, setNewTicker] = useState('');
 
   useEffect(() => {
-    Promise.all(
+    Promise.allSettled(
       tickers.map(t => stockApi.quote(t).then(q => ({ t, q })))
     ).then(results => {
       const map: Record<string, Quote> = {};
-      results.forEach(({ t, q }) => { map[t] = q; });
+      results.forEach(r => { if (r.status === 'fulfilled') map[r.value.t] = r.value.q; });
       setQuotes(map);
     }).finally(() => setLoading(false));
   }, [tickers]);

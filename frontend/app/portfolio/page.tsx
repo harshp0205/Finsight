@@ -18,8 +18,9 @@ export default function PortfolioPage() {
   useEffect(() => {
     if (!token) return;
     portfolioApi.list(token).then(data => {
-      setPortfolios(data);
-      if (data.length) setSelected(data[0].id);
+      const list = data || [];
+      setPortfolios(list);
+      if (list.length) setSelected(list[0].id);
     }).finally(() => setLoading(false));
   }, [token]);
 

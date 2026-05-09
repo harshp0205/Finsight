@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef } from 'react';
-import { createChart, ColorType } from 'lightweight-charts';
+import { createChart, ColorType, AreaSeries } from 'lightweight-charts';
 import type { HistoryPoint } from '@/lib/types';
 
 interface Props { data: HistoryPoint[]; height?: number }
@@ -18,13 +18,12 @@ export function PriceChart({ data, height = 300 }: Props) {
       height,
     });
 
-    const series = chart.addSeries({
-      seriesType: 'Area' as const,
+    const series = chart.addSeries(AreaSeries, {
       lineColor: '#3b82f6',
       topColor: 'rgba(59,130,246,0.3)',
       bottomColor: 'rgba(59,130,246,0)',
       lineWidth: 2,
-    } as any);
+    });
 
     series.setData(
       data.map(d => ({
