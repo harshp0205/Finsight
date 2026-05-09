@@ -1,0 +1,75 @@
+'use client';
+import { useState, useEffect } from 'react';
+import { useAuth } from '@/hooks/useAuth';
+import { stockApi } from '@/lib/api';
+import { QuoteCard } from '@/components/Stock/QuoteCard';
+import { Spinner } from '@/components/UI/Spinner';
+import { Plus, X } from 'lucide-react';
+import type { Quote } from '@/lib/types';
+import Link from 'next/link';
+
+const DEFAULT_TICKERS = ['AAPL', 'NVDA', 'MSFT', 'TSLA', 'GOOGL'];
+
+export default function WatchlistPage() {
+  const { user } = useAuth();
+  const [tickers, setTickers] = useState<string[]>(DEFAULT_TICKERS);
+  const [quotes, setQuotes] = useState<Record<string, Quote>>({});
+  const [loading, setLoading] = useState(true);
+  const [newTicker, setNewTicker] = useState('');
+
+  useEffect(() => {
+    Promise.all(
+      tickers.map(t => stockApi.quote(t).then(q => ({ t, q })))
+    ).then(results => {
+      const map: Record<string, Quote> = {};
+      results.forEach(({ t, q }) => { map[t] = q; });
+      setQuotes(map);
+    }).finally(() => setLoading(false));
+  }, [tickers]);
+
+  const add = () => {
+    const t = newTicker.trim().toUpperCase();
+    if (t && !tickers.includes(t)) setTickers(prev => [...prev, t]);
+    setNewTicker('');
+  };
+
+  const remove = (t: string) => setTickers(prev => prev.filter(x => x !== t));
+
+  if (loading) return <div className="flex justify-center pt-20"><Spinner size="lg" /></div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-white">Watchlist</h1>
+        <div className="flex gap-2">
+          <input value={newTicker} onChange={e => setNewTicker(e.target.value.toUpperCase())}
+            onKeyDown={e => e.key === 'Enter' && add()}
+            placeholder="Add ticker…"
+            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-blue-500 w-32" />
+          <button onClick={add}
+            className="flex items-center gap-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors">
+            <Plus size={16} />
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        {tickers.map(t => (
+          <div key={t} className="relative group">
+            <button onClick={() => remove(t)}
+              className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition-all">
+              <X size={14} />
+            </button>
+            <Link href={`/stock/${t}`}>
+              {quotes[t] ? <QuoteCard quote={quotes[t]} /> : (
+                <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex justify-center items-center h-40">
+                  <Spinner />
+                </div>
+              )}
+            </Link>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
