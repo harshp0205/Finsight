@@ -4,15 +4,16 @@ import { getQuote, getFinancials, getEarnings } from '../services/yahoo.js';
 import { getNews } from '../services/news.js';
 import { generateWithContext, streamCompletion } from '../services/llm.js';
 
-const SYSTEM_PROMPT = `You are FinSight, an institutional-grade AI financial analyst.
-Rules:
-- Back every claim with data from the provided context
-- Cite sources inline as [Filing: 10-K 2024], [News: headline], [Price: $X]
-- Flag speculation clearly with "Note:"
-- Be concise but thorough — use sections and bullet points
-- Never fabricate numbers`;
+const SYSTEM_PROMPT = `You are FinSight, an institutional-grade AI financial analyst with access to live market data.
+CRITICAL RULES:
+- The context below contains LIVE real-time data fetched right now — always use it to answer
+- NEVER say you don't have access to real-time data — you DO via the context provided
+- If price data is in the context, state it directly and confidently
+- Cite sources inline: [Price: $X], [News: headline], [Filing: 10-K 2024]
+- Be concise — answer the question directly first, then add detail
+- Never fabricate numbers not present in the context`;
 
-function buildContext(sources, liveData, ragChunks) {
+function buildContext(_sources, liveData, ragChunks) {
   const parts = [];
 
   if (liveData.quote) {
@@ -52,7 +53,8 @@ Next EPS Estimate: $${trend.epsEstimate?.avg?.toFixed(2)} | Revenue Estimate: $$
     ).join('\n\n')}`);
   }
 
-  return parts.join('\n\n') || 'No specific context available.';
+  if (!parts.length) return 'No market data available for this query.';
+  return parts.join('\n\n');
 }
 
 function extractCitations(text) {
@@ -84,7 +86,8 @@ async function gatherData(query) {
   };
   const chunks = ragChunks.status === 'fulfilled' ? ragChunks.value : { filings: [], news: [] };
 
-  return { intent, ticker, context: buildContext(needed, liveData, chunks) };
+  const ctx = buildContext(needed, liveData, chunks);
+  return { intent, ticker, context: ctx };
 }
 
 export async function runPipeline(query, conversationHistory = []) {

@@ -15,15 +15,25 @@ export function getLLM() {
   return getGroq();
 }
 
+function buildMessages(systemPrompt, userMessage, context) {
+  const messages = [{ role: 'system', content: systemPrompt }];
+  if (context && context !== 'No market data available for this query.') {
+    messages.push({
+      role: 'user',
+      content: `Here is the live market data retrieved right now:\n\n${context}\n\nBased on this data, answer: ${userMessage}`,
+    });
+  } else {
+    messages.push({ role: 'user', content: userMessage });
+  }
+  return messages;
+}
+
 // Non-streaming completion
 export async function generateWithContext(systemPrompt, userMessage, context) {
   const groq = getGroq();
   const completion = await groq.chat.completions.create({
     model: GROQ_MODEL,
-    messages: [
-      { role: 'system', content: `${systemPrompt}\n\n## Context\n${context}` },
-      { role: 'user',   content: userMessage },
-    ],
+    messages: buildMessages(systemPrompt, userMessage, context),
     temperature: 0.3,
     max_tokens: 1024,
   });
@@ -35,10 +45,7 @@ export async function* streamCompletion(systemPrompt, userMessage, context) {
   const groq = getGroq();
   const stream = await groq.chat.completions.create({
     model: GROQ_MODEL,
-    messages: [
-      { role: 'system', content: `${systemPrompt}\n\n## Context\n${context}` },
-      { role: 'user',   content: userMessage },
-    ],
+    messages: buildMessages(systemPrompt, userMessage, context),
     temperature: 0.3,
     max_tokens: 1024,
     stream: true,
