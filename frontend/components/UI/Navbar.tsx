@@ -13,7 +13,7 @@ const NAV = [
 
 export function Navbar() {
   const pathname = usePathname();
-  const { user, loading, signInWithGoogle, signOut } = useAuth();
+  const { user, signInWithGoogle, signOut } = useAuth();
 
   return (
     <nav className="border-b border-gray-800 bg-gray-950/80 backdrop-blur sticky top-0 z-50">
@@ -38,7 +38,7 @@ export function Navbar() {
         </div>
 
         <div>
-          {loading ? null : user ? (
+          {user ? (
             <div className="flex items-center gap-3">
               <span className="text-sm text-gray-400">{user.email}</span>
               <button onClick={signOut} className="text-gray-400 hover:text-white transition-colors">
