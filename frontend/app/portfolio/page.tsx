@@ -26,11 +26,16 @@ export default function PortfolioPage() {
 
   const create = async () => {
     if (!token || !newName.trim()) return;
-    const p = await portfolioApi.create(newName.trim(), token);
-    setPortfolios(prev => [...prev, p]);
-    setSelected(p.id);
-    setNewName('');
-    setCreating(false);
+    try {
+      const p = await portfolioApi.create(newName.trim(), token);
+      if (!p) return;
+      setPortfolios(prev => [...prev, p]);
+      setSelected(p.id);
+      setNewName('');
+      setCreating(false);
+    } catch (err) {
+      console.error('create portfolio failed:', err);
+    }
   };
 
   if (!user) return <p className="text-center text-gray-400 pt-20">Sign in to view your portfolio.</p>;

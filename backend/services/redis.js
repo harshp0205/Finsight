@@ -9,6 +9,6 @@ export async function withCache(key, ttl, fetcher) {
   const cached = await redis.get(key);
   if (cached) return cached;
   const data = await fetcher();
-  await redis.set(key, data, { ex: ttl });
+  if (data != null) await redis.set(key, data, { ex: ttl });
   return data;
 }

@@ -9,6 +9,7 @@ import chatRoutes from './routes/chat.js';
 import portfolioRoutes from './routes/portfolio.js';
 import authRoutes from './routes/auth.js';
 import alertRoutes from './routes/alerts.js';
+import watchlistRoutes from './routes/watchlist.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -24,6 +25,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/portfolio', portfolioRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/alerts', alertRoutes);
+app.use('/api/watchlist', watchlistRoutes);
 
 app.get('/health', (_, res) => res.json({ status: 'ok', ts: Date.now() }));
 
