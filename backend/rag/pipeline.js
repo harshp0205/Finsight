@@ -2,7 +2,7 @@ import { classifyIntent } from './intent.js';
 import { retrieveAll } from './retrieval.js';
 import { getQuote, getFinancials, getEarnings } from '../services/yahoo.js';
 import { getNews } from '../services/news.js';
-import { getLLM } from '../services/llm.js';
+import { generateWithContext, streamCompletion } from '../services/llm.js';
 
 const SYSTEM_PROMPT = `You are FinSight, an institutional-grade AI financial analyst.
 Rules:
@@ -52,108 +52,65 @@ Next EPS Estimate: $${trend.epsEstimate?.avg?.toFixed(2)} | Revenue Estimate: $$
     ).join('\n\n')}`);
   }
 
-  return parts.join('\n\n');
+  return parts.join('\n\n') || 'No specific context available.';
+}
+
+function extractCitations(text) {
+  return [
+    ...[...text.matchAll(/\[Filing: ([^\]]+)\]/g)].map(m => ({ type: 'filing', ref: m[1] })),
+    ...[...text.matchAll(/\[News: ([^\]]+)\]/g)].map(m => ({ type: 'news', ref: m[1] })),
+    ...[...text.matchAll(/\[Price: ([^\]]+)\]/g)].map(m => ({ type: 'price', ref: m[1] })),
+  ];
+}
+
+async function gatherData(query) {
+  const intent = await classifyIntent(query);
+  const ticker = intent.tickers?.[0];
+  const needed = intent.sources;
+
+  const [quote, financials, earnings, news, ragChunks] = await Promise.allSettled([
+    needed.includes('price') && ticker ? getQuote(ticker) : null,
+    needed.includes('financials') && ticker ? getFinancials(ticker) : null,
+    needed.includes('earnings') && ticker ? getEarnings(ticker) : null,
+    needed.includes('news') && ticker ? getNews(ticker) : null,
+    ticker ? retrieveAll(ticker, query) : { filings: [], news: [] },
+  ]);
+
+  const liveData = {
+    quote:      quote.status === 'fulfilled' ? quote.value : null,
+    financials: financials.status === 'fulfilled' ? financials.value : null,
+    earnings:   earnings.status === 'fulfilled' ? earnings.value : null,
+    news:       news.status === 'fulfilled' ? news.value : [],
+  };
+  const chunks = ragChunks.status === 'fulfilled' ? ragChunks.value : { filings: [], news: [] };
+
+  return { intent, ticker, context: buildContext(needed, liveData, chunks) };
 }
 
 export async function runPipeline(query, conversationHistory = []) {
-  // Step 1: classify intent
-  const intent = await classifyIntent(query);
-  const ticker = intent.tickers?.[0];
+  const { intent, ticker, context } = await gatherData(query);
+  const history = conversationHistory.slice(-6)
+    .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+    .join('\n');
 
-  // Step 2: parallel data fetch based on intent
-  const needed = intent.sources;
-  const [quote, financials, earnings, news, ragChunks] = await Promise.allSettled([
-    needed.includes('price') && ticker ? getQuote(ticker) : null,
-    needed.includes('financials') && ticker ? getFinancials(ticker) : null,
-    needed.includes('earnings') && ticker ? getEarnings(ticker) : null,
-    needed.includes('news') && ticker ? getNews(ticker) : null,
-    ticker ? retrieveAll(ticker, query) : { filings: [], news: [] },
-  ]);
-
-  const liveData = {
-    quote:      quote.status === 'fulfilled' ? quote.value : null,
-    financials: financials.status === 'fulfilled' ? financials.value : null,
-    earnings:   earnings.status === 'fulfilled' ? earnings.value : null,
-    news:       news.status === 'fulfilled' ? news.value : [],
-  };
-  const chunks = ragChunks.status === 'fulfilled' ? ragChunks.value : { filings: [], news: [] };
-
-  // Step 3: build context
-  const context = buildContext(needed, liveData, chunks);
-
-  // Step 4: build conversation history string
-  const history = conversationHistory.slice(-6).map(m =>
-    `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
-  ).join('\n');
-
-  const fullPrompt = `${SYSTEM_PROMPT}
-
-${history ? `## Conversation History\n${history}\n` : ''}
-## Context
-${context}
-
-## Question
-${query}`;
-
-  // Step 5: LLM call
-  const model = getLLM();
-  const result = await model.generateContent(fullPrompt);
-  const answer = result.response.text();
-
-  // Step 6: extract citations
-  const citations = [
-    ...([...answer.matchAll(/\[Filing: ([^\]]+)\]/g)].map(m => ({ type: 'filing', ref: m[1] }))),
-    ...([...answer.matchAll(/\[News: ([^\]]+)\]/g)].map(m => ({ type: 'news', ref: m[1] }))),
-    ...([...answer.matchAll(/\[Price: ([^\]]+)\]/g)].map(m => ({ type: 'price', ref: m[1] }))),
-  ];
-
-  return { answer, citations, intent, ticker };
+  const userMessage = history ? `${history}\n\nUser: ${query}` : query;
+  const answer = await generateWithContext(SYSTEM_PROMPT, userMessage, context);
+  return { answer, citations: extractCitations(answer), intent, ticker };
 }
 
-// Streaming variant — yields text chunks via async generator
 export async function* streamPipeline(query, conversationHistory = []) {
-  const intent = await classifyIntent(query);
-  const ticker = intent.tickers?.[0];
+  const { intent, ticker, context } = await gatherData(query);
+  const history = conversationHistory.slice(-6)
+    .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+    .join('\n');
 
-  const needed = intent.sources;
-  const [quote, financials, earnings, news, ragChunks] = await Promise.allSettled([
-    needed.includes('price') && ticker ? getQuote(ticker) : null,
-    needed.includes('financials') && ticker ? getFinancials(ticker) : null,
-    needed.includes('earnings') && ticker ? getEarnings(ticker) : null,
-    needed.includes('news') && ticker ? getNews(ticker) : null,
-    ticker ? retrieveAll(ticker, query) : { filings: [], news: [] },
-  ]);
-
-  const liveData = {
-    quote:      quote.status === 'fulfilled' ? quote.value : null,
-    financials: financials.status === 'fulfilled' ? financials.value : null,
-    earnings:   earnings.status === 'fulfilled' ? earnings.value : null,
-    news:       news.status === 'fulfilled' ? news.value : [],
-  };
-  const chunks = ragChunks.status === 'fulfilled' ? ragChunks.value : { filings: [], news: [] };
-
-  const context = buildContext(needed, liveData, chunks);
-  const history = conversationHistory.slice(-6).map(m =>
-    `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
-  ).join('\n');
-
-  const fullPrompt = `${SYSTEM_PROMPT}\n\n${history ? `## Conversation History\n${history}\n` : ''}## Context\n${context}\n\n## Question\n${query}`;
-
-  const model = getLLM();
-  const streamResult = await model.generateContentStream(fullPrompt);
+  const userMessage = history ? `${history}\n\nUser: ${query}` : query;
 
   let fullText = '';
-  for await (const chunk of streamResult.stream) {
-    const text = chunk.text();
+  for await (const text of streamCompletion(SYSTEM_PROMPT, userMessage, context)) {
     fullText += text;
     yield { type: 'chunk', text };
   }
 
-  const citations = [
-    ...([...fullText.matchAll(/\[Filing: ([^\]]+)\]/g)].map(m => ({ type: 'filing', ref: m[1] }))),
-    ...([...fullText.matchAll(/\[News: ([^\]]+)\]/g)].map(m => ({ type: 'news', ref: m[1] }))),
-    ...([...fullText.matchAll(/\[Price: ([^\]]+)\]/g)].map(m => ({ type: 'price', ref: m[1] }))),
-  ];
-
-  yield { type: 'done', citations, intent, ticker };
+  yield { type: 'done', citations: extractCitations(fullText), intent, ticker };
 }

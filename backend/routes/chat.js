@@ -67,7 +67,13 @@ router.post('/', requireAuth, async (req, res, next) => {
     sendEvent('conversationId', { id: convId });
     res.end();
   } catch (err) {
-    next(err);
+    // SSE headers already sent — can't use normal error handler
+    if (res.headersSent) {
+      res.write(`event: error\ndata: ${JSON.stringify({ message: err.message })}\n\n`);
+      res.end();
+    } else {
+      next(err);
+    }
   }
 });
 

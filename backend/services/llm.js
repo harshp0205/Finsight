@@ -1,14 +1,63 @@
+import Groq from 'groq-sdk';
+
+// ── Groq (active) ─────────────────────────────────────────────
+// Free tier: 14,400 req/day, 6,000 tokens/min
+// Model: llama-3.3-70b-versatile — best open model for financial reasoning
+let _groq;
+function getGroq() {
+  if (!_groq) _groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  return _groq;
+}
+
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
+
+export function getLLM() {
+  return getGroq();
+}
+
+// Non-streaming completion
+export async function generateWithContext(systemPrompt, userMessage, context) {
+  const groq = getGroq();
+  const completion = await groq.chat.completions.create({
+    model: GROQ_MODEL,
+    messages: [
+      { role: 'system', content: `${systemPrompt}\n\n## Context\n${context}` },
+      { role: 'user',   content: userMessage },
+    ],
+    temperature: 0.3,
+    max_tokens: 1024,
+  });
+  return completion.choices[0].message.content;
+}
+
+// Streaming — returns async iterable of chunks
+export async function* streamCompletion(systemPrompt, userMessage, context) {
+  const groq = getGroq();
+  const stream = await groq.chat.completions.create({
+    model: GROQ_MODEL,
+    messages: [
+      { role: 'system', content: `${systemPrompt}\n\n## Context\n${context}` },
+      { role: 'user',   content: userMessage },
+    ],
+    temperature: 0.3,
+    max_tokens: 1024,
+    stream: true,
+  });
+
+  for await (const chunk of stream) {
+    const text = chunk.choices[0]?.delta?.content || '';
+    if (text) yield text;
+  }
+}
+
+// ── Gemini embeddings (still used for pgvector RAG) ───────────
+// Groq doesn't provide embeddings — Gemini text-embedding-004 stays for this
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 let _genAI;
-
 function getGenAI() {
   if (!_genAI) _genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
   return _genAI;
-}
-
-export function getLLM() {
-  return getGenAI().getGenerativeModel({ model: 'gemini-2.0-flash' });
 }
 
 export function getEmbeddingModel() {
@@ -19,11 +68,4 @@ export async function embedText(text) {
   const model = getEmbeddingModel();
   const result = await model.embedContent(text);
   return result.embedding.values;
-}
-
-export async function generateWithContext(systemPrompt, userMessage, context) {
-  const model = getLLM();
-  const fullPrompt = `${systemPrompt}\n\n--- CONTEXT ---\n${context}\n--- END CONTEXT ---\n\nUser: ${userMessage}`;
-  const result = await model.generateContent(fullPrompt);
-  return result.response.text();
 }
