@@ -20,8 +20,7 @@ router.get('/', requireAuth, async (req, res, next) => {
 router.post('/', requireAuth, async (req, res, next) => {
   try {
     const { name } = req.body;
-    console.log('[portfolio] creating for user_id:', req.user.sub);
-    const { data, error } = await supabase
+const { data, error } = await supabase
       .from('portfolios')
       .insert({ user_id: req.user.sub, name })
       .select()
@@ -33,6 +32,11 @@ router.post('/', requireAuth, async (req, res, next) => {
 
 router.post('/:id/holdings', requireAuth, async (req, res, next) => {
   try {
+    // Ensure portfolio belongs to this user
+    const { data: portfolio } = await supabase
+      .from('portfolios').select('id').eq('id', req.params.id).eq('user_id', req.user.sub).single();
+    if (!portfolio) return res.status(403).json({ error: 'Forbidden' });
+
     const { ticker: rawTicker, shares, avg_buy_price } = req.body;
     const ticker = resolveTicker(rawTicker);
     const { data, error } = await supabase
@@ -54,12 +58,15 @@ router.get('/:id/performance', requireAuth, async (req, res, next) => {
 
     const withPrices = await Promise.all(
       holdings.map(async (h) => {
-        const quote = await getQuote(h.ticker);
-        const currentValue = quote.regularMarketPrice * h.shares;
+        const ticker = resolveTicker(h.ticker);
+        const quote = await getQuote(ticker).catch(() => null);
+        const currentPrice = quote?.regularMarketPrice ?? h.avg_buy_price;
+        const currentValue = currentPrice * h.shares;
         const costBasis = h.avg_buy_price * h.shares;
         return {
           ...h,
-          currentPrice: quote.regularMarketPrice,
+          ticker,
+          currentPrice,
           currentValue,
           costBasis,
           gainLoss: currentValue - costBasis,

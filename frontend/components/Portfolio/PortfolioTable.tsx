@@ -19,7 +19,7 @@ export function PortfolioTable({ portfolioId }: { portfolioId: string }) {
     portfolioApi.performance(portfolioId, token).then(setPerf).finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, [portfolioId, token]);
+  useEffect(() => { setLoading(true); setPerf(null); load(); }, [portfolioId, token]);
 
   const addHolding = async () => {
     if (!token || !form.ticker || !form.shares || !form.avg_buy_price) return;
